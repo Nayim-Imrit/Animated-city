@@ -32,8 +32,8 @@ solar-powered boats.
 | Rendering | AI-generated video frames | Procedural 2D canvas | Procedural 2D canvas |
 | Assets | Video + poster PNG | None — all geometry in code | None — all geometry in code |
 | Download size | 1.86 MB video | 75 KB HTML | 60 KB HTML |
-| Session time | ~13 min | 20 min | ~17 min |
-| Usage / cost | $1.20 (Devin desktop, 75% Argon promo) | 8.2M tokens | 7.7M tokens (platform); no per-run price |
+| Session time | ~13 min | 20 min | 13 min 20 s |
+| Usage / cost | $1.20 (Devin desktop, 75% Argon promo) | 8.2M tokens | 7,152,467 tokens; no per-run price |
 | Interactivity | Video playback only | Live scene, resizes to the window | Live scene, resizes to the window |
 | Mood | Dense night scene, mosaic foliage | Bright open daytime harbor | Golden-hour sunset, warm golds |
 | Source of motion | Generated pixels; loops back to start | Deterministic per-pixel animation | Deterministic per-pixel animation |
@@ -121,11 +121,10 @@ Then visit `http://localhost:8000` for the Grok build or
   the same frame count so all three panels advance together.
 - Timing and cost figures: Gemini on the Devin desktop app with the 75% Argon
   promo (13 min, $1.20); Grok 4.6 at 20 minutes and 8.2M tokens. DeepSeek Flash
-  4.1 ran on MonkeyCode with no separately metered per-run price. The platform
-  reported 7.7M tokens and about 17 minutes for that build. The local session log
-  records 7,152,467 tokens (90,110 input, 71,092 output, 6,991,265 cache reads)
-  across 54 assistant messages and 13 min 20 s of wall-clock from prompt to final
-  answer, so the platform figure appears to include metering overhead.
+  4.1 ran on MonkeyCode with no separately metered per-run price. Its figures were
+  verified from the local session log: 7,152,467 tokens (90,110 input, 71,092
+  output, 6,991,265 cache reads) across 54 assistant messages and 13 min 20 s of
+  wall-clock from prompt to final answer.
 - The DeepSeek scene is one file with no dependencies, fonts or image assets:
   every tower, vine, ripple and airship is drawn with rectangles and ellipses on
   a 480 × 270 canvas, then scaled with nearest-neighbour sampling.
