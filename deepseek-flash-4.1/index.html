@@ -1,0 +1,1760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solarpunk Waterfront · DeepSeek Flash 4.1</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    background: #071417;
+    overflow: hidden;
+  }
+  body {
+    display: grid;
+    place-items: center;
+    background: radial-gradient(120% 100% at 50% 18%, #133039 0%, #08171a 58%, #050f11 100%);
+  }
+  #frame {
+    position: relative;
+    line-height: 0;
+    box-shadow:
+      0 0 0 1px rgba(255, 214, 150, 0.16),
+      0 0 70px rgba(255, 178, 108, 0.16),
+      0 26px 90px rgba(0, 0, 0, 0.65);
+  }
+  #frame::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(125% 95% at 50% 42%, transparent 58%, rgba(6, 20, 22, 0.40) 100%),
+      repeating-linear-gradient(to bottom, rgba(5, 18, 20, 0.14) 0 1px, transparent 1px 3px);
+    mix-blend-mode: multiply;
+    opacity: 0.5;
+  }
+  canvas {
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    background: #7fc7d8;
+  }
+</style>
+</head>
+<body>
+<div id="frame"><canvas id="scene" width="480" height="270"></canvas></div>
+<script>
+"use strict";
+
+/* ------------------------------------------------------------------ */
+/*  SOLARPUNK WATERFRONT - procedural 16-bit animated pixel art        */
+/*  DeepSeek Flash 4.1 build - single file, no external assets         */
+/* ------------------------------------------------------------------ */
+
+const W = 480;
+const H = 270;
+const WATER_Y = 192;
+
+const canvas = document.getElementById("scene");
+const ctx = canvas.getContext("2d", { alpha: false });
+ctx.imageSmoothingEnabled = false;
+
+const bgCanvas = document.createElement("canvas");
+bgCanvas.width = W;
+bgCanvas.height = H;
+const bx = bgCanvas.getContext("2d", { alpha: false });
+bx.imageSmoothingEnabled = false;
+
+const P = {
+  skyTop: "#3f7fa8",
+  skyUpper: "#69a9c2",
+  skyMid: "#a6d4cd",
+  skyWarm: "#ffd79b",
+  skyHorizon: "#ffb877",
+  sun: "#fff3c4",
+
+  cloud: "#fff3dd",
+  cloudLight: "#fffdf2",
+  cloudShade: "#eccfa9",
+
+  farHill: "#a9cfc0",
+  farHill2: "#89bfae",
+  farCity: "#7fb2a8",
+  farCityLight: "#a7cfc2",
+
+  stone: "#d3bb92",
+  stoneLight: "#efdcb4",
+  stoneMid: "#bfa87f",
+  stoneDark: "#9d865f",
+  stoneDeep: "#7c6749",
+
+  wall: "#f7e6c2",
+  wallLight: "#fff4d9",
+  wallShade: "#e0c79c",
+  wallDeep: "#c6a97c",
+
+  glass: "#8fd8e3",
+  glassLight: "#dcfbff",
+  glassDeep: "#56a9bb",
+  glassFrame: "#3a7d8c",
+
+  gold: "#ffd166",
+  goldLight: "#ffe9b0",
+  goldDeep: "#d9963a",
+
+  greenDeep: "#265c3c",
+  greenDark: "#367547",
+  green: "#4f9b50",
+  greenLight: "#7dc35f",
+  greenBright: "#b8de6b",
+
+  wood: "#8a5a33",
+  woodLight: "#bb8047",
+  woodWarm: "#d6a05f",
+  woodDark: "#5c3a21",
+  woodDeep: "#3f2817",
+
+  waterDeep: "#16505f",
+  water: "#2a7d86",
+  waterMid: "#3f9a98",
+  waterLight: "#86d9c4",
+  waterGlint: "#e8fff2",
+
+  white: "#f4fcf4",
+  flower: "#ff9f7a",
+  flowerPink: "#ffb8c2",
+  shadow: "#1f4a52",
+  bird: "#40585e",
+  rope: "#c9a068"
+};
+
+/* ----------------------------- helpers ----------------------------- */
+
+function mulberry32(a) {
+  return function () {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function rect(g, x, y, w, h, color, alpha) {
+  if (w <= 0 || h <= 0) return;
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const iw = Math.max(1, Math.round(w));
+  const ih = Math.max(1, Math.round(h));
+  g.fillStyle = color;
+  if (alpha !== undefined && alpha !== 1) g.globalAlpha = alpha;
+  g.fillRect(ix, iy, iw, ih);
+  if (alpha !== undefined && alpha !== 1) g.globalAlpha = 1;
+}
+
+function px(g, x, y, color, alpha) {
+  rect(g, x, y, 1, 1, color, alpha);
+}
+
+function line(g, x0, y0, x1, y1, color, thick, alpha) {
+  x0 = Math.round(x0);
+  y0 = Math.round(y0);
+  x1 = Math.round(x1);
+  y1 = Math.round(y1);
+  const dx = Math.abs(x1 - x0);
+  const sx = x0 < x1 ? 1 : -1;
+  const dy = -Math.abs(y1 - y0);
+  const sy = y0 < y1 ? 1 : -1;
+  let err = dx + dy;
+  g.fillStyle = color;
+  if (alpha !== undefined && alpha !== 1) g.globalAlpha = alpha;
+  const t = thick || 1;
+  for (;;) {
+    g.fillRect(x0, y0, t, t);
+    if (x0 === x1 && y0 === y1) break;
+    const e2 = 2 * err;
+    if (e2 >= dy) { err += dy; x0 += sx; }
+    if (e2 <= dx) { err += dx; y0 += sy; }
+  }
+  if (alpha !== undefined && alpha !== 1) g.globalAlpha = 1;
+}
+
+function ellipse(g, cx, cy, rx, ry, color, alpha) {
+  if (rx <= 0 || ry <= 0) return;
+  const y0 = Math.round(cy - ry);
+  const y1 = Math.round(cy + ry);
+  g.fillStyle = color;
+  if (alpha !== undefined && alpha !== 1) g.globalAlpha = alpha;
+  for (let y = y0; y <= y1; y++) {
+    const dy = (y - cy) / ry;
+    const s = 1 - dy * dy;
+    if (s < 0) continue;
+    const w = Math.round(rx * Math.sqrt(s));
+    g.fillRect(Math.round(cx - w), y, w * 2 + 1, 1);
+  }
+  if (alpha !== undefined && alpha !== 1) g.globalAlpha = 1;
+}
+
+function ellipseRows(g, cx, cy, rx, ry, fn) {
+  for (let y = Math.round(cy - ry); y <= Math.round(cy + ry); y++) {
+    const dy = (y - cy) / ry;
+    const s = 1 - dy * dy;
+    if (s < 0) continue;
+    const w = Math.round(rx * Math.sqrt(s));
+    fn(y, Math.round(cx - w), w * 2 + 1, dy);
+  }
+}
+
+function dither(g, x, y, w, h, color, step, offset, alpha) {
+  step = step || 2;
+  offset = offset || 0;
+  g.fillStyle = color;
+  if (alpha !== undefined && alpha !== 1) g.globalAlpha = alpha;
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const x1 = Math.floor(x + w);
+  const y1 = Math.floor(y + h);
+  for (let yy = y0; yy < y1; yy++) {
+    for (let xx = x0 + ((yy + offset) % step); xx < x1; xx += step) {
+      g.fillRect(xx, yy, 1, 1);
+    }
+  }
+  if (alpha !== undefined && alpha !== 1) g.globalAlpha = 1;
+}
+
+function ring(g, cx, cy, r, thick, color) {
+  for (let y = -r; y <= r; y++) {
+    const ro = Math.sqrt(Math.max(0, r * r - y * y));
+    const ri = Math.sqrt(Math.max(0, (r - thick) * (r - thick) - y * y));
+    const wo = Math.round(ro);
+    const wi = Math.round(ri);
+    g.fillStyle = color;
+    g.fillRect(Math.round(cx - wo), Math.round(cy + y), wo - wi + 1, 1);
+    g.fillRect(Math.round(cx + wi), Math.round(cy + y), wo - wi + 1, 1);
+  }
+}
+
+/* ------------------------------ sky -------------------------------- */
+
+function drawSky(g) {
+  const grad = g.createLinearGradient(0, 0, 0, WATER_Y);
+  grad.addColorStop(0.00, "#3d7ca6");
+  grad.addColorStop(0.26, "#6aa8c1");
+  grad.addColorStop(0.50, "#a3d1cc");
+  grad.addColorStop(0.70, "#f4dfb2");
+  grad.addColorStop(0.88, "#ffcb92");
+  grad.addColorStop(1.00, "#ffb478");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, W, WATER_Y);
+
+  for (let y = 0; y < 120; y += 3) {
+    rect(g, 0, y, W, 1, "rgba(255,255,255,0.035)");
+  }
+  for (let y = 116; y < WATER_Y; y += 5) {
+    rect(g, 0, y, W, 1, "rgba(255,226,172,0.055)");
+  }
+
+  const sx = 402;
+  const sy = 58;
+  for (let i = 5; i >= 1; i--) {
+    ellipse(g, sx, sy, 13 + i * 11, 11 + i * 9, "#ffe8ad", 0.05);
+  }
+  dither(g, sx - 52, sy - 44, 104, 88, "#ffeec0", 3, 0, 0.08);
+  ellipse(g, sx, sy, 20, 20, "#fdefbf", 0.95);
+  ellipse(g, sx, sy, 17, 17, "#fff6d6");
+  ellipse(g, sx, sy, 12, 12, "#fffdf0");
+
+}
+
+function hillLayer(g, baseY, amp, f1, f2, phase, color) {
+  g.fillStyle = color;
+  for (let x = 0; x < W; x += 2) {
+    const n =
+      Math.sin(x * f1 + phase) * amp +
+      Math.sin(x * f2 + phase * 1.7) * amp * 0.38;
+    const y = Math.round(baseY - n);
+    g.fillRect(x, y, 2, WATER_Y - y);
+  }
+}
+
+function drawFarLandscape(g) {
+  hillLayer(g, 174, 11, 0.016, 0.041, 1.2, P.farHill);
+  hillLayer(g, 182, 7, 0.024, 0.062, 4.2, P.farHill2);
+
+  const rnd = mulberry32(4242);
+  for (let i = 0; i < 11; i++) {
+    const x = 132 + i * 19 + Math.round(rnd() * 8);
+    const h = 8 + Math.round(rnd() * 20);
+    const w = 5 + Math.round(rnd() * 6);
+    const y = 184 - h;
+    rect(g, x, y, w, h, P.farCity, 0.75);
+    rect(g, x, y, 1, h, P.farCityLight, 0.6);
+    if (rnd() < 0.7) {
+      ellipse(g, x + w / 2, y, w / 2, 3, P.farCity, 0.75);
+      px(g, x + w / 2, y - 5, "#ffe2a8", 0.8);
+    }
+  }
+
+  // distant turbines: just silhouettes
+  for (let i = 0; i < 3; i++) {
+    const x = 168 + i * 62;
+    const baseY = 178;
+    line(g, x, baseY, x, baseY - 16, "#8ab9ac", 1, 0.85);
+    line(g, x, baseY - 16, x - 5, baseY - 21, "#8ab9ac", 1, 0.85);
+    line(g, x, baseY - 16, x + 5, baseY - 21, "#8ab9ac", 1, 0.85);
+    line(g, x, baseY - 16, x, baseY - 23, "#8ab9ac", 1, 0.85);
+  }
+
+  const hz = g.createLinearGradient(0, 150, 0, WATER_Y);
+  hz.addColorStop(0, "rgba(255,231,181,0.0)");
+  hz.addColorStop(1, "rgba(255,220,164,0.55)");
+  g.fillStyle = hz;
+  g.fillRect(0, 150, W, WATER_Y - 150);
+}
+
+/* --------------------------- building kit -------------------------- */
+
+function drawWindow(g, x, y, w, h, lit) {
+  rect(g, x, y, w, h, P.glassFrame);
+  rect(g, x + 1, y + 1, w - 2, h - 3, lit ? "#ffdf9e" : "#6fbfcc");
+  rect(g, x + 1, y + 1, w - 2, 1, lit ? "#fff1c4" : "#d9fbff");
+  rect(g, x + 1, y + h - 2, w - 2, 1, lit ? "#e8a75a" : "#4a93a1");
+  rect(g, x + Math.floor(w / 2), y + 1, 1, h - 2, P.glassFrame);
+  rect(g, x - 1, y + h, w + 2, 1, "#b98f4a");
+}
+
+function drawDoor(g, x, base, w, h) {
+  rect(g, x, base - h, w, h, P.woodDark);
+  rect(g, x + 1, base - h + 1, w - 2, h - 1, P.wood);
+  rect(g, x + 2, base - h + 2, w - 4, h - 4, "#ffd98a", 0.8);
+  rect(g, x + 2, base - h + 2, w - 4, 1, "#fff0c0", 0.9);
+  rect(g, x + Math.floor(w / 2), base - h + 2, 1, h - 4, P.woodDark, 0.6);
+  px(g, x + w - 3, base - Math.floor(h / 2), P.gold);
+  rect(g, x - 2, base, w + 4, 1, P.stoneLight);
+  rect(g, x - 1, base + 1, w + 2, 1, P.stoneDark);
+}
+
+function drawVine(g, x, y, len, seed) {
+  const rnd = mulberry32(seed);
+  let sway = 0;
+  for (let i = 0; i < len; i++) {
+    sway = Math.round(Math.sin(i * 0.34 + seed * 0.01) * 1.5);
+    const color = i % 3 === 0 ? P.greenDark : P.green;
+    px(g, x + sway, y + i, color);
+    if (i % 4 === 2) {
+      px(g, x + sway - 1, y + i, P.greenLight);
+      if (rnd() < 0.5) px(g, x + sway + 1, y + i, P.greenBright);
+    }
+    if (i % 6 === 3) {
+      px(g, x + sway - 1, y + i, P.greenLight);
+      px(g, x + sway + 1, y + i + 1, P.green);
+      if (rnd() < 0.35) px(g, x + sway + 2, y + i, P.greenBright);
+    }
+    if (i % 9 === 4 && rnd() < 0.16) px(g, x + sway + 1, y + i, P.flower);
+    if (i % 15 === 7 && rnd() < 0.3) px(g, x + sway - 1, y + i, P.flowerPink);
+  }
+}
+
+function drawBush(g, x, y, r, seed) {
+  const rnd = mulberry32(seed);
+  ellipse(g, x, y - r, r + 1, r, P.greenDark);
+  ellipse(g, x - 1, y - r - 1, r, r - 1, P.green);
+  ellipse(g, x - r * 0.4, y - r - 2, r * 0.7, r * 0.55, P.greenLight);
+  for (let i = 0; i < 5; i++) {
+    px(g, x - r + Math.round(rnd() * r * 2), y - r - Math.round(rnd() * r), P.greenBright, 0.85);
+  }
+  if (rnd() < 0.6) px(g, x + Math.round(rnd() * 4 - 2), y - r - 2, P.flowerPink);
+}
+
+function drawTree(g, x, baseY, h, seed) {
+  const rnd = mulberry32(seed);
+  rect(g, x - 1, baseY - h + 6, 3, h - 6, P.woodDark);
+  rect(g, x - 1, baseY - h + 6, 1, h - 6, P.wood);
+  const crownY = baseY - h;
+  for (let i = 0; i < 6; i++) {
+    const cx = x + Math.round(rnd() * 12 - 6);
+    const cy = crownY + Math.round(rnd() * 8);
+    ellipse(g, cx, cy, 5 + Math.round(rnd() * 3), 4 + Math.round(rnd() * 2), rnd() < 0.5 ? P.greenDark : P.green);
+  }
+  ellipse(g, x + 2, crownY - 3, 4, 3, P.greenLight);
+  for (let i = 0; i < 4; i++) {
+    px(g, x - 5 + Math.round(rnd() * 11), crownY - 4 + Math.round(rnd() * 8), P.greenBright, 0.8);
+  }
+  if (rnd() < 0.7) px(g, x + 3, crownY - 2, P.flower);
+}
+
+function drawTowerBody(g, x, top, w, base, opt) {
+  opt = opt || {};
+  const fh = opt.fh || 26;
+  rect(g, x, top, w, base - top, P.wall);
+  rect(g, x, top, 9, base - top, P.wallShade);
+  rect(g, x, top, 3, base - top, P.wallDeep);
+  rect(g, x + w - 5, top, 5, base - top, P.wallLight);
+  rect(g, x, top, 1, base - top, "#b8863f");
+  rect(g, x + w - 1, top, 1, base - top, P.goldLight);
+
+  for (let xx = x + 12; xx < x + w - 12; xx += 13) {
+    dither(g, xx, top + 4, 1, base - top - 8, "rgba(130,100,70,0.16)", 3, 0);
+  }
+
+  const nf = Math.max(1, Math.floor((base - top - 8) / fh));
+  for (let f = 1; f <= nf; f++) {
+    const y = Math.min(base - 5, Math.round(top + f * fh));
+    rect(g, x + 1, y, w - 2, 2, "#e2cba1");
+    rect(g, x + 1, y + 2, w - 2, 1, "rgba(90,68,44,0.22)");
+    rect(g, x + 3, y + 3, w - 6, 1, "rgba(255,238,196,0.35)");
+  }
+
+  const winW = 9;
+  const winH = 12;
+  const cols = Math.max(2, Math.floor((w - 14) / 18));
+  const margin = Math.max(8, Math.round((w - (cols * winW + (cols - 1) * 8)) / 2));
+  for (let f = 0; f < nf; f++) {
+    const bandTop = Math.round(top + f * fh);
+    const wy = bandTop + Math.round((fh - winH) / 2) + 2;
+    if (wy + winH > base - 6) continue;
+    for (let c = 0; c < cols; c++) {
+      const wx = x + margin + c * (winW + 8);
+      if (wx + winW > x + w - 6) continue;
+      const lit = (f * 5 + c * 7 + x) % 13 === 0;
+      drawWindow(g, wx, wy, winW, winH, lit);
+      if ((f + c) % 2 === 0) {
+        rect(g, wx - 1, wy + winH + 1, winW + 2, 2, P.woodDark);
+        rect(g, wx - 1, wy + winH + 1, winW + 2, 1, P.woodWarm);
+        ellipse(g, wx + 1, wy + winH, 2, 1, P.greenDark);
+        ellipse(g, wx + 4, wy + winH - 1, 2, 1, P.greenLight);
+        if ((f + c) % 4 === 0) px(g, wx + 6, wy + winH - 2, P.flowerPink);
+      }
+    }
+  }
+
+  if (w >= 44 && opt.bay !== false) {
+    const bxx = x + w - 13;
+    const byy = top + 4;
+    const bhh = base - top - 9;
+    rect(g, bxx - 1, byy - 1, 10, bhh + 2, P.goldDeep);
+    rect(g, bxx, byy, 8, bhh, P.glassFrame);
+    rect(g, bxx + 1, byy + 1, 6, bhh - 2, "#7fd0d8");
+    for (let yy = byy + 6; yy < byy + bhh - 2; yy += 9) {
+      rect(g, bxx, yy, 8, 1, "#2f6b78");
+      px(g, bxx + 2, yy + 2, P.goldLight, 0.7);
+    }
+    for (let yy = byy + 2; yy < byy + bhh - 4; yy += 9) {
+      const lit = ((yy + x) % 27) < 9;
+      rect(g, bxx + 1, yy, 6, 3, lit ? "#ffe1a3" : "#bff2f1");
+    }
+    rect(g, bxx + 7, byy + 1, 1, bhh - 2, "#e4ffff", 0.55);
+    rect(g, bxx - 1, byy - 1, 10, 1, P.goldLight);
+    drawVine(g, bxx + 2, byy + bhh - 2, 6, 300 + x);
+  }
+
+  if (opt.door) {
+    const dx = x + Math.round(w / 2) - 7;
+    drawDoor(g, dx, base, 14, 16);
+    rect(g, dx - 4, base - 25, 22, 1, P.woodDark);
+    for (let i = 0; i < 7; i++) {
+      rect(g, dx - 4 + i * 3, base - 24, 3, 4, i % 2 ? "#fff2d2" : "#3f9aa2");
+    }
+    rect(g, dx - 5, base - 24, 1, 4, P.woodDark);
+    rect(g, dx + 17, base - 24, 1, 4, P.woodDark);
+    rect(g, dx - 4, base - 20, 21, 1, P.woodDark, 0.5);
+  }
+
+  if (w > 40) {
+    for (let f = 2; f < nf; f += 2) {
+      const by = Math.round(top + f * fh) + 1;
+      if (by > base - 22) break;
+      rect(g, x - 2, by, w + 4, 2, "#c8ae82");
+      rect(g, x - 2, by + 2, w + 4, 1, "rgba(80,58,36,0.3)");
+      for (let k = 0; k < 3; k++) {
+        const fx = x + 6 + k * Math.floor((w - 12) / 2);
+        ellipse(g, fx, by - 2, 3, 2, P.greenDark);
+        ellipse(g, fx + 1, by - 3, 2, 1, P.greenLight);
+        if ((f + k) % 2 === 0) px(g, fx + 1, by - 4, P.flowerPink);
+      }
+      drawVine(g, x + 4, by + 2, 5 + (f % 3) * 2, 350 + x + f);
+    }
+  }
+
+  rect(g, x - 2, base - 2, w + 4, 2, P.stoneMid);
+  rect(g, x - 2, base - 2, w + 4, 1, P.stoneLight);
+  rect(g, x - 1, base, w + 2, 1, P.stoneDark);
+}
+
+function drawDome(g, cx, base, rx, ry, seed) {
+  const cy = base - ry;
+  const rnd = mulberry32(seed);
+
+  ellipse(g, cx, cy, rx, ry, P.glassDeep);
+  ellipse(g, cx, cy - 1, rx - 1, ry - 1, P.glass);
+  ellipseRows(g, cx, cy - 2, rx - 2, ry - 2, function (yy, left, ww, dy) {
+    if (dy < -0.2) rect(g, left, yy, ww, 1, "#c9f6f4", 0.75);
+    else if (dy > 0.35) rect(g, left, yy, ww, 1, "#4e9aa9", 0.45);
+  });
+
+  // ribs
+  for (let i = -3; i <= 3; i++) {
+    const fx = cx + i * (rx / 3.4);
+    const h = ry * Math.sqrt(Math.max(0, 1 - (i / 3.4) * (i / 3.4)));
+    line(g, fx, cy - h + 2, fx, cy + h - 2, "rgba(58,125,140,0.5)");
+  }
+  ellipse(g, cx, cy + Math.round(ry * 0.18), rx + 1, Math.round(ry * 0.82), P.glassFrame, 0);
+  for (let i = 0; i <= 4; i++) {
+    const t = i / 4;
+    const yy = cy - ry + Math.round(t * ry * 1.6);
+    const s = Math.sqrt(Math.max(0, 1 - ((yy - cy) / (ry + 1)) ** 2));
+    const w = Math.round(rx * s);
+    if (w > 0) rect(g, cx - w, yy, w * 2, 1, P.glassFrame, 0.35);
+  }
+
+  // inner greenhouse vines and a little tree silhouette
+  for (let i = 0; i < 5; i++) {
+    const vx = cx - rx + 6 + Math.round(rnd() * (rx * 2 - 12));
+    const vy = cy - Math.round(rnd() * ry * 0.5);
+    drawVine(g, vx, vy, 6 + Math.round(rnd() * 10), seed + i * 7);
+  }
+  ellipse(g, cx + 3, base - 4, 7, 5, "#2f6b45", 0.55);
+  ellipse(g, cx + 7, base - 6, 5, 4, "#4f9b50", 0.5);
+
+  // highlight sweep
+  for (let i = 0; i < 9; i++) {
+    const a = -2.5 + i * 0.14;
+    const hx = cx + Math.cos(a) * rx * 0.78;
+    const hy = cy + Math.sin(a) * ry * 0.78;
+    px(g, hx, hy, "#eaffff", 0.5 - i * 0.02);
+  }
+
+  // skirt ring and hanging vines
+  ellipse(g, cx, base - 1, rx + 2, 3, P.goldDeep);
+  ellipse(g, cx, base - 2, rx + 1, 2, P.gold);
+  for (let i = 0; i <= 6; i++) {
+    const vx = cx - rx + Math.round((i / 6) * rx * 2);
+    const vy = base + 1;
+    const vl = 5 + Math.round(rnd() * 12);
+    drawVine(g, vx, vy, vl, seed + 40 + i);
+  }
+
+  // finial
+  line(g, cx, cy - ry - 1, cx, cy - ry - 7, P.goldDeep, 1);
+  ellipse(g, cx, cy - ry - 8, 2, 2, P.gold);
+  px(g, cx, cy - ry - 10, P.goldLight);
+}
+
+function drawRoofGarden(g, x0, x1, y, seed) {
+  const rnd = mulberry32(seed);
+  rect(g, x0, y, x1 - x0, 3, "#5d9450");
+  rect(g, x0, y, x1 - x0, 1, "#7fbb60");
+  dither(g, x0, y + 1, x1 - x0, 2, "#3f7742", 3, 1, 0.6);
+  let i = 0;
+  for (let x = x0 + 4; x < x1 - 3; x += 8) {
+    const r = 2 + Math.round(rnd() * 2);
+    drawBush(g, x, y, r, seed + i * 11);
+    i++;
+  }
+  for (let x = x0 + 5; x < x1 - 4; x += 13) {
+    if (rnd() < 0.55) px(g, x, y - 2, P.flowerPink);
+    if (rnd() < 0.35) px(g, x + 4, y - 1, P.gold);
+  }
+}
+
+function drawSolarPanel(g, x, y, w, h) {
+  rect(g, x, y, w, h, "#2f6b78");
+  rect(g, x, y, w, 1, "#5fa3ad");
+  for (let i = 1; i < w; i += 4) rect(g, x + i, y + 1, 1, h - 2, "#468b96", 0.8);
+  for (let j = 1; j < h; j += 3) rect(g, x + 1, y + j, w - 2, 1, "#468b96", 0.7);
+  px(g, x + 1, y + 1, "#d9fbff", 0.9);
+  rect(g, x - 1, y + h, w + 2, 1, P.woodDark);
+}
+
+/* ----------------------------- banks ------------------------------- */
+
+function drawBank(g, x0, x1) {
+  const rnd = mulberry32(1200 + x0);
+  rect(g, x0, 178, x1 - x0, 12, "#5d9450");
+  rect(g, x0, 178, x1 - x0, 2, "#76ab5b");
+  dither(g, x0, 180, x1 - x0, 10, "#497f43", 3, 1, 0.7);
+  for (let x = x0 + 6; x < x1; x += 22) {
+    ellipse(g, x, 186 + (rnd() * 2 | 0), 4, 2, "#6fae4d", 0.6);
+  }
+
+  rect(g, x0, 190, x1 - x0, 4, P.stone);
+  rect(g, x0, 190, x1 - x0, 1, "#f0dfb9");
+  rect(g, x0, 193, x1 - x0, 1, "#a58d68");
+  for (let x = x0 + 5; x < x1; x += 17) {
+    rect(g, x, 191, 1, 2, "rgba(110,88,60,0.30)");
+  }
+  for (let x = x0 + 10; x < x1; x += 34) {
+    rect(g, x, 192, 2, 1, P.goldDeep, 0.65);
+  }
+  for (let x = x0; x < x1; x += 3) {
+    if (rnd() < 0.32) px(g, x, 193, "#7fae5b", 0.8);
+    if (rnd() < 0.20) px(g, x, 192, "#5d9450", 0.7);
+  }
+}
+
+function drawQuayLamp(g, x, y) {
+  rect(g, x, y - 14, 2, 14, P.woodDark);
+  rect(g, x, y - 14, 1, 14, P.woodWarm);
+  rect(g, x - 2, y - 17, 6, 3, P.goldDeep);
+  rect(g, x - 1, y - 16, 4, 2, "#ffe9a8");
+  ellipse(g, x + 1, y - 15, 7, 6, "#ffdf9e", 0.12);
+}
+
+/* ----------------------------- scene ------------------------------- */
+
+function drawLeftSide(g) {
+  drawBank(g, 0, 152);
+
+  // back low building
+  drawTowerBody(g, 4, 158, 42, 190, { fh: 24, bay: false });
+  drawRoofGarden(g, 2, 48, 158, 11);
+  drawSolarPanel(g, 10, 151, 14, 6);
+  drawSolarPanel(g, 28, 152, 12, 5);
+
+  // main glass-dome tower
+  drawTowerBody(g, 16, 146, 74, 190, { fh: 26, door: true });
+  drawTowerBody(g, 26, 116, 54, 146, { fh: 22, bay: false });
+  drawTowerBody(g, 36, 100, 34, 116, { fh: 16, bay: false });
+  drawRoofGarden(g, 26, 80, 116, 12);
+  drawRoofGarden(g, 36, 70, 100, 13);
+  drawDome(g, 53, 100, 26, 20, 501);
+  drawSolarPanel(g, 28, 109, 12, 5);
+  drawVine(g, 18, 146, 26, 71);
+  drawVine(g, 82, 130, 22, 72);
+  drawVine(g, 30, 116, 16, 73);
+  for (let i = 0; i < 3; i++) {
+    drawBush(g, 26 + i * 18, 190, 4, 61 + i);
+  }
+  drawBush(g, 8, 190, 4, 65);
+  drawQuayLamp(g, 92, 190);
+
+  // tiny greenhouse on the roof
+  rect(g, 60, 108, 16, 10, P.woodDark);
+  rect(g, 61, 109, 14, 8, P.glassDeep);
+  rect(g, 62, 110, 12, 6, P.glass);
+  rect(g, 62, 110, 12, 1, P.glassLight);
+  rect(g, 60, 108, 16, 1, P.goldDeep);
+  line(g, 68, 108, 68, 118, P.glassFrame);
+  for (let x = 62; x < 74; x += 3) px(g, x, 116, P.green);
+
+  // a gardener on the far terrace
+  drawPerson(g, 7, 190, "#6fa8c9", "#4a4a44");
+
+  // far-left crates
+  rect(g, 118, 184, 8, 6, P.wood);
+  rect(g, 118, 184, 8, 1, P.woodWarm);
+  rect(g, 118, 188, 8, 1, P.woodDark, 0.6);
+}
+
+function drawPerson(g, x, base, shirt, hat) {
+  const y = base - 12;
+  rect(g, x, y + 4, 5, 8, shirt);
+  rect(g, x - 1, y + 12, 3, 1, P.woodDeep);
+  rect(g, x + 3, y + 12, 3, 1, P.woodDeep);
+  rect(g, x + 1, y + 1, 4, 4, "#e9b48c");
+  rect(g, x - 2, y, 9, 2, hat);
+  rect(g, x - 1, y - 1, 6, 1, "#f2d79c");
+  px(g, x + 2, y + 3, "#5f3d24");
+  px(g, x + 4, y + 3, "#5f3d24");
+}
+
+function drawMill(g) {
+  // stone foundation at the water line
+  rect(g, 58, 176, 58, 14, P.stoneMid);
+  rect(g, 58, 176, 58, 1, P.stoneLight);
+  rect(g, 58, 190, 58, 1, P.stoneDeep);
+  for (let x = 64; x < 114; x += 9) rect(g, x, 179, 1, 9, "rgba(110,88,60,0.3)");
+
+  // wheel support frame, drawn behind the turning wheel
+  rect(g, 100, 186, 4, 32, P.woodDark);
+  rect(g, 100, 186, 1, 32, P.wood);
+  rect(g, 130, 186, 4, 30, P.woodDark);
+  rect(g, 130, 186, 1, 30, P.wood);
+  rect(g, 100, 196, 34, 4, P.wood);
+  rect(g, 100, 196, 34, 1, P.woodWarm);
+  line(g, 101, 208, 129, 188, P.woodDark, 1, 0.7);
+
+  // mill house
+  rect(g, 64, 150, 44, 28, P.wall);
+  rect(g, 64, 150, 44, 1, P.wallLight);
+  rect(g, 64, 150, 7, 28, P.wallShade);
+  rect(g, 104, 150, 4, 28, P.wallLight);
+  // timber frame
+  rect(g, 64, 150, 1, 28, P.woodDark);
+  rect(g, 107, 150, 1, 28, P.woodDark);
+  rect(g, 64, 170, 44, 2, P.woodDark, 0.8);
+  // door and windows
+  drawDoor(g, 78, 176, 12, 14);
+  drawWindow(g, 68, 155, 7, 8, true);
+  drawWindow(g, 96, 155, 7, 8, true);
+  // roof
+  for (let i = 0; i < 5; i++) {
+    rect(g, 60 + i * 3, 150 - i * 3, 52 - i * 6, 3, i % 2 ? P.woodWarm : P.wood);
+  }
+  rect(g, 59, 149, 55, 1, P.woodLight);
+  rect(g, 86, 136, 7, 6, P.woodDark);
+  rect(g, 87, 137, 5, 4, "#2f4d4a");
+  // moss and flowers on the roof
+  for (let x = 66; x < 110; x += 6) {
+    ellipse(g, x, 146 + ((x * 3) % 3), 3, 1, P.greenDark, 0.8);
+    if (x % 12 === 2) px(g, x, 145, P.flowerPink);
+  }
+
+  drawVine(g, 62, 176, 10, 55);
+  drawVine(g, 108, 172, 12, 56);
+
+  // short wooden launder feeding the top of the wheel
+  rect(g, 104, 184, 14, 4, P.wood);
+  rect(g, 104, 184, 14, 1, P.woodLight);
+  rect(g, 104, 187, 14, 1, P.woodDeep);
+  line(g, 116, 186, 116, 180, P.woodDark, 1);
+}
+
+/* --------------------------- arch bridge --------------------------- */
+
+function drawArchBridge(g) {
+  const x0 = 128;
+  const x1 = 200;
+  const deckY = 150;
+  const spring = 173;
+  const arches = [
+    { cx: 150, r: 9 },
+    { cx: 180, r: 11 }
+  ];
+
+  // shaded canal visible through each arch
+  for (const a of arches) {
+    for (let x = a.cx - a.r; x <= a.cx + a.r; x++) {
+      const dx = x - a.cx;
+      const yTop = spring - Math.round(Math.sqrt(Math.max(0, a.r * a.r - dx * dx)) * 0.92);
+      rect(g, x, yTop, 1, WATER_Y - yTop, "#2e626d");
+      if ((x + a.cx) % 7 === 0) {
+        px(g, x, yTop + 6 + ((x * 3) % 9), "#5fa3a8", 0.5);
+        px(g, x, yTop + 10 + ((x * 5) % 7), "#8fd0c6", 0.4);
+      }
+    }
+  }
+
+  // spandrels and piers
+  for (let x = x0; x < x1; x++) {
+    let archTop = WATER_Y;
+    for (const a of arches) {
+      const dx = x - a.cx;
+      if (Math.abs(dx) <= a.r) {
+        archTop = spring - Math.round(Math.sqrt(Math.max(0, a.r * a.r - dx * dx)) * 0.92);
+      }
+    }
+    const topY = deckY - 3;
+    if (archTop > topY) {
+      rect(g, x, topY, 1, archTop - topY, x < 166 ? P.stoneMid : P.stone);
+      if (x % 9 === 0) px(g, x, topY + 5, P.stoneLight, 0.5);
+      if (x % 13 === 3) px(g, x, topY + 11, "rgba(110,90,64,0.25)");
+    }
+  }
+
+  // arch rings
+  for (const a of arches) {
+    for (let x = a.cx - a.r; x <= a.cx + a.r; x++) {
+      const dx = x - a.cx;
+      const yTop = spring - Math.round(Math.sqrt(Math.max(0, a.r * a.r - dx * dx)) * 0.92);
+      rect(g, x, yTop, 1, 2, P.stoneDark);
+      if (Math.abs(dx) > a.r - 2) rect(g, x, yTop, 1, 2, P.stoneLight);
+    }
+  }
+
+  // deck and parapet
+  rect(g, x0 - 2, deckY - 3, x1 - x0 + 4, 3, P.stoneLight);
+  rect(g, x0 - 2, deckY - 1, x1 - x0 + 4, 1, P.stoneDark);
+  for (let x = x0 + 1; x < x1; x += 7) {
+    rect(g, x, deckY - 7, 1, 4, P.woodDark);
+    rect(g, x, deckY - 7, 1, 1, P.woodLight);
+    if (x % 14 === 1) drawVine(g, x, deckY - 4, 3 + (x % 3), 400 + x);
+  }
+  rect(g, x0 + 1, deckY - 7, x1 - x0 - 2, 1, P.wood);
+  rect(g, x0 + 1, deckY - 5, x1 - x0 - 2, 1, P.woodDark, 0.6);
+
+  // mossy stone and flowers
+  for (let x = x0; x < x1; x += 4) {
+    if ((x * 3) % 11 < 4) {
+      px(g, x, deckY + 1, P.greenLight);
+      if ((x * 5) % 7 < 2) px(g, x, deckY, P.flowerPink);
+    }
+  }
+
+  // wooden water channel on top
+  for (let x = x0 + 1; x < x1 - 1; x++) {
+    px(g, x, deckY - 4, P.wood);
+    if (x % 5 === 0) px(g, x, deckY - 4, P.waterLight, 0.9);
+  }
+}
+
+/* ------------------------------ cliff ------------------------------ */
+
+const pools = [
+  { cx: 234, cy: 146, rx: 18, ry: 5.5 },
+  { cx: 245, cy: 164, rx: 17, ry: 5 },
+  { cx: 256, cy: 182, rx: 17, ry: 5 }
+];
+
+const falls = [
+  { x: 228, y0: 152, y1: 164, w: 15, seed: 1 },
+  { x: 239, y0: 170, y1: 182, w: 14, seed: 2 },
+  { x: 250, y0: 188, y1: 194, w: 16, seed: 3 },
+  { x: 204, y0: 159, y1: 193, w: 12, seed: 4 }
+];
+
+function drawCliff(g) {
+  const rnd = mulberry32(909);
+
+  // silhouette with a soft symmetrical plateau
+  for (let x = 196; x < 324; x += 2) {
+    let top;
+    if (x < 212) top = 146 + Math.round((212 - x) * 1.6);
+    else if (x <= 308) top = 142 + Math.round(Math.sin(x * 0.17) * 1.4 + Math.sin(x * 0.07 + 1) * 1.2);
+    else top = 142 + Math.round((x - 308) * 1.7);
+    top = Math.max(140, Math.min(188, top));
+    rect(g, x, top, 2, WATER_Y - top, x > 288 ? "#ad9469" : "#c2ac82");
+    if (x < 210) rect(g, x, top, 1, WATER_Y - top, "rgba(110,90,64,0.35)");
+    if (x > 312) rect(g, x, top, 1, WATER_Y - top, "#ddc59b", 0.45);
+  }
+
+  // vertical strata
+  for (let i = 0; i < 5; i++) {
+    const bx2 = 210 + i * 22;
+    rect(g, bx2, 148 + (i % 2) * 5, 3, 42, "rgba(120,100,72,0.14)");
+    rect(g, bx2 + 1, 148 + (i % 2) * 5, 1, 42, "rgba(250,232,196,0.14)");
+  }
+
+  const rnd2 = mulberry32(1717);
+  for (let y = 152; y < 190; y += 7) {
+    for (let x = 202; x < 320; x += 11) {
+      const off = (x * 3 + y) % 7;
+      px(g, x + off, y, "rgba(110,90,64,0.32)");
+      px(g, x + off + 1, y, "rgba(110,90,64,0.16)");
+      if ((x + y) % 3 === 0) px(g, x + off, y + 1, "rgba(255,235,196,0.20)");
+    }
+  }
+  for (let i = 0; i < 10; i++) {
+    const cx2 = 204 + Math.round(rnd2() * 110);
+    const cy2 = 154 + Math.round(rnd2() * 30);
+    line(g, cx2, cy2, cx2 + 2 + Math.round(rnd2() * 4), cy2 + 6, "rgba(96,78,56,0.22)");
+  }
+
+  // rock shelves under the pools
+  ellipse(g, 247, 166, 23, 7, "#9a8460");
+  ellipse(g, 247, 164, 21, 6, "#b8a37d");
+  ellipse(g, 258, 182, 22, 7, "#9a8460");
+  ellipse(g, 258, 180, 20, 5, "#b8a37d");
+  ellipse(g, 236, 150, 21, 7, "#9a8460");
+  ellipse(g, 236, 148, 19, 5, "#c4af88");
+
+  // side boulders
+  ellipse(g, 202, 178, 9, 12, "#a8926b");
+  ellipse(g, 201, 175, 7, 9, "#c4af88");
+  ellipse(g, 318, 176, 10, 14, "#a8926b");
+  ellipse(g, 317, 173, 8, 11, "#c4af88");
+  ellipse(g, 315, 185, 8, 9, "#9a8460");
+
+  // waterline boulders
+  for (let i = 0; i < 6; i++) {
+    const bx2 = 206 + i * 20 + (i % 2) * 3;
+    const by2 = 189 + (i % 2) * 2;
+    ellipse(g, bx2, by2, 6 + (i % 3), 4, "#9a8460");
+    ellipse(g, bx2 - 1, by2 - 1, 4 + (i % 2), 2.5, "#c4af88");
+    ellipse(g, bx2 - 2, by2 - 2, 2, 1.4, "#dfc9a0");
+  }
+
+  // stone shelves and pool rims
+  for (const p of pools) {
+    ellipse(g, p.cx, p.cy + 5, p.rx + 4, p.ry + 3, "#8d7754");
+    ellipse(g, p.cx, p.cy + 2, p.rx + 2, p.ry + 2, "#7c6749");
+    ellipse(g, p.cx, p.cy + 1, p.rx, p.ry + 1, "#2f6f78");
+    rect(g, p.cx - p.rx + 2, p.cy + p.ry + 2, p.rx * 2 - 4, 1, "#6d5a3f", 0.5);
+  }
+
+  // mossy greenery and flowers
+  for (let x = 200; x < 322; x += 3) {
+    const r = (x * 7) % 13;
+    if (r < 5) {
+      const top = x >= 212 && x <= 308
+        ? 142 + Math.round(Math.sin(x * 0.17) * 1.4 + Math.sin(x * 0.07 + 1) * 1.2)
+        : (x < 212 ? 146 + Math.round((212 - x) * 1.6) : 142 + Math.round((x - 308) * 1.7));
+      px(g, x, top, r < 2 ? P.greenLight : P.green);
+    }
+  }
+  for (let x = 222; x < 276; x += 3) {
+    if ((x * 2) % 9 < 4) {
+      px(g, x, 157, P.greenLight);
+      px(g, x + 1, 156, P.green);
+    }
+  }
+  for (let x = 234; x < 286; x += 4) {
+    if ((x * 3) % 11 < 4) {
+      px(g, x, 173, P.greenLight);
+      px(g, x + 1, 172, P.green);
+    }
+  }
+
+  drawVine(g, 276, 152, 22, 81);
+  drawVine(g, 288, 168, 18, 82);
+  drawVine(g, 216, 154, 16, 83);
+  drawVine(g, 224, 170, 14, 89);
+  drawVine(g, 200, 164, 26, 190);
+  drawVine(g, 210, 174, 20, 191);
+  drawVine(g, 300, 154, 30, 192);
+  drawVine(g, 310, 168, 22, 193);
+  drawVine(g, 286, 180, 14, 194);
+  drawVine(g, 220, 182, 12, 195);
+  drawBush(g, 270, 154, 4, 84);
+  drawBush(g, 250, 172, 3, 85);
+  drawBush(g, 204, 168, 4, 86);
+  drawBush(g, 292, 188, 4, 90);
+  drawBush(g, 214, 187, 4, 91);
+  for (let i = 0; i < 4; i++) {
+    px(g, 226 + i * 9, 154 + (i % 2), P.flowerPink);
+    px(g, 234 + i * 8, 170 + (i % 2), P.flower);
+  }
+  // mossy patches and little lanterns on the rock face
+  dither(g, 200, 160, 22, 26, "rgba(79,155,80,0.35)", 3, 1, 0.6);
+  dither(g, 292, 158, 24, 28, "rgba(79,155,80,0.32)", 3, 0, 0.55);
+  dither(g, 236, 174, 46, 12, "rgba(79,155,80,0.30)", 4, 2, 0.5);
+  for (let i = 0; i < 5; i++) {
+    px(g, 204 + i * 4, 170 + ((i * 3) % 7), P.flowerPink);
+    px(g, 296 + i * 4, 174 + ((i * 5) % 6), P.flower);
+  }
+  rect(g, 308, 178, 2, 8, P.woodDark);
+  rect(g, 307, 176, 4, 2, P.goldDeep);
+  px(g, 308, 177, "#ffe9a8");
+  px(g, 309, 177, "#fff7d8");
+
+  // rock spring and stone lip for the tall side cascade
+  ellipse(g, 210, 158, 10, 4, "#9a8460");
+  ellipse(g, 210, 157, 8, 3, "#bda983");
+  ellipse(g, 210, 157, 6, 2, "#4fb4b4");
+  rect(g, 204, 157, 13, 1, "#d8fbf0", 0.85);
+  px(g, 203, 158, "#ffffff", 0.8);
+  px(g, 218, 158, "#ffffff", 0.8);
+
+  drawTree(g, 294, 146, 20, 88);
+  drawTree(g, 210, 145, 22, 87);
+  drawTree(g, 306, 176, 14, 92);
+
+  // plateau garden
+  rect(g, 212, 140, 96, 2, "#5d9450");
+  dither(g, 212, 140, 96, 2, P.greenLight, 3, 0, 0.5);
+  for (let x = 216; x < 306; x += 5) {
+    if (x > 252 && x < 262) continue;
+    px(g, x, 139, P.greenLight);
+    if ((x * 3) % 8 === 0) px(g, x, 138, P.flowerPink);
+  }
+
+  drawGazebo(g, 264, 142);
+}
+
+function drawGazebo(g, x, baseY) {
+  rect(g, x - 2, baseY - 5, 32, 5, P.stoneMid);
+  rect(g, x - 2, baseY - 5, 32, 1, P.stoneLight);
+  rect(g, x - 1, baseY - 2, 30, 2, P.stoneDark);
+  for (let i = 0; i < 4; i++) {
+    const px2 = x + 1 + i * 9;
+    rect(g, px2, baseY - 24, 2, 19, P.wood);
+    rect(g, px2, baseY - 24, 1, 19, P.woodLight);
+  }
+  rect(g, x + 1, baseY - 15, 28, 1, P.woodLight);
+  rect(g, x + 1, baseY - 13, 28, 1, P.wood);
+  for (let i = 0; i < 6; i++) {
+    const rowW = 24 + i * 2;
+    rect(g, x + 14 - Math.round(rowW / 2), baseY - 32 + i, rowW, 1, i % 2 ? P.goldDeep : P.gold);
+  }
+  rect(g, x - 3, baseY - 26, 38, 1, P.goldLight);
+  ellipse(g, x + 14, baseY - 35, 5, 3, P.gold);
+  ellipse(g, x + 14, baseY - 36, 3, 2, P.goldLight);
+  line(g, x + 14, baseY - 39, x + 14, baseY - 36, P.goldDeep, 1);
+  px(g, x + 14, baseY - 40, P.goldLight);
+  drawVine(g, x + 1, baseY - 20, 12, 95);
+  drawVine(g, x + 30, baseY - 20, 10, 96);
+  px(g, x + 8, baseY - 14, "#ffd98a");
+  px(g, x + 8, baseY - 13, "#ffe9b0");
+  drawBush(g, x + 4, baseY - 5, 3, 97);
+}
+
+/* ----------------------------- right side -------------------------- */
+
+function drawRightSide(g) {
+  drawBank(g, 322, 480);
+
+  // main right tower
+  drawTowerBody(g, 330, 150, 68, 190, { fh: 25, door: true });
+  drawTowerBody(g, 342, 120, 44, 150, { fh: 20, bay: false });
+  drawRoofGarden(g, 330, 398, 150, 22);
+  drawRoofGarden(g, 342, 386, 120, 23);
+  drawDome(g, 364, 120, 25, 18, 601);
+  drawVine(g, 334, 150, 22, 75);
+  drawVine(g, 392, 158, 18, 76);
+  drawVine(g, 344, 120, 14, 82);
+  for (let i = 0; i < 2; i++) {
+    const pxp = 352 + i * 18;
+    ellipse(g, pxp, 112, 3, 3, P.goldDeep);
+    ellipse(g, pxp, 112, 2, 2, "#ffe1a3");
+    px(g, pxp + 1, 111, "#fff6d6");
+  }
+
+  // second right tower
+  drawTowerBody(g, 412, 136, 58, 190, { fh: 22, door: true });
+  drawRoofGarden(g, 412, 470, 136, 24);
+  drawSolarPanel(g, 416, 128, 16, 6);
+  drawSolarPanel(g, 438, 129, 14, 5);
+  drawBush(g, 448, 136, 4, 87);
+  drawTree(g, 424, 136, 18, 35);
+  drawVine(g, 414, 156, 18, 77);
+  drawVine(g, 466, 150, 16, 78);
+  drawTinyCat(g, 408, 190);
+
+  // small greenhouse at the far right
+  drawTowerBody(g, 468, 158, 12, 190, { fh: 20, bay: false });
+  drawRoofGarden(g, 466, 480, 158, 25);
+
+  for (let i = 0; i < 3; i++) {
+    drawBush(g, 336 + i * 18, 190, 4, 63 + i);
+  }
+  drawBush(g, 456, 190, 4, 67);
+  drawQuayLamp(g, 404, 190);
+
+  // far right terrace garden
+  rect(g, 470, 176, 10, 2, "#5d9450");
+  rect(g, 470, 178, 10, 12, P.stoneDark);
+}
+
+function drawTinyCat(g, x, base) {
+  rect(g, x, base - 5, 5, 4, "#4a4a44");
+  rect(g, x - 1, base - 7, 3, 3, "#55554d");
+  px(g, x - 1, base - 8, "#4a4a44");
+  px(g, x + 1, base - 8, "#4a4a44");
+  px(g, x - 1, base - 6, P.gold);
+  px(g, x + 1, base - 6, P.gold);
+  line(g, x + 5, base - 4, x + 7, base - 7, "#4a4a44", 1);
+}
+
+/* ---------------------------- waterfall ---------------------------- */
+
+function drawFall(g, x, y0, y1, w, seed, t) {
+  const len = Math.max(1, y1 - y0);
+
+  // water curtain
+  for (let y = y0; y < y1; y++) {
+    const dy = y - y0;
+    const half = (w / 2) * (0.9 + (dy / len) * 0.22);
+    const xL = Math.round(x + w / 2 - half);
+    const wRow = Math.max(1, Math.round(half * 2));
+    rect(g, xL, y, wRow, 1, "rgba(105,190,200,0.62)");
+    rect(g, xL + 1, y, Math.max(1, wRow - 2), 1, "rgba(205,246,244,0.42)");
+    if (dy % 3 === 0) px(g, xL + 1, y, "#ffffff", 0.5);
+    if (dy % 4 === 1) px(g, xL + wRow - 2, y, "#eafcff", 0.45);
+  }
+
+  // solid vertical cores
+  for (let s = 0; s < 4; s++) {
+    const xx = x + 1 + ((s * 3 + seed) % Math.max(1, w - 3));
+    rect(g, xx, y0, 1, len, "#eafcff", 0.4);
+  }
+
+  // animated falling streaks
+  for (let s = 0; s < 9; s++) {
+    const speed = 26 + s * 6;
+    const yy = y0 + (((t * speed + s * 17 + seed * 11) % (len + 10)) - 5);
+    if (yy < y0 || yy >= y1) continue;
+    const lateral = Math.round(Math.sin(t * 1.3 + s * 1.7 + seed) * 1.5);
+    const xx = x + 2 + ((s * 3 + seed) % Math.max(1, w - 3)) + lateral;
+    const l = 2 + (s % 4);
+    const hh = Math.min(l, y1 - yy);
+    if (hh <= 0) continue;
+    rect(g, xx, yy, 1, hh, "#ffffff", 0.8);
+    if (s % 2 === 0) px(g, xx + 1, yy + 1, "#ffffff", 0.6);
+    if (s === 2) px(g, xx - 1, yy + 2, "#ffe9b0", 0.5);
+  }
+
+  // frothy lip
+  rect(g, x - 1, y0 - 1, w + 2, 1, "#f4ffff", 0.95);
+  rect(g, x, y0 - 2, w, 1, "#ffffff", 0.55);
+  px(g, x - 2, y0, "#ffffff", 0.75);
+  px(g, x + w + 1, y0, "#ffffff", 0.75);
+
+  // landing splash
+  ellipse(g, x + w / 2, y1, w * 0.55, 1.6, "#eafff8", 0.5);
+  for (let s = 0; s < 7; s++) {
+    const side = s % 2 === 0 ? -1 : 1;
+    const dx = side * (2 + s);
+    const dy = -Math.abs(Math.sin(t * 2.4 + s + seed)) * 3;
+    px(g, x + w / 2 + dx, y1 + dy, "#ffffff", 0.6);
+  }
+}
+
+function drawPools(g, t) {
+  for (let i = 0; i < pools.length; i++) {
+    const p = pools[i];
+    ellipse(g, p.cx, p.cy, p.rx, p.ry, "#4fb4b4");
+    for (let y = -Math.round(p.ry); y <= Math.round(p.ry); y++) {
+      const s = 1 - (y / p.ry) * (y / p.ry);
+      if (s < 0) continue;
+      const w = Math.round(p.rx * Math.sqrt(s));
+      for (let x = -w + 2; x < w - 2; x += 5) {
+        if (Math.sin(x * 0.9 + y * 1.7 + t * 2.2) > 0.35) {
+          rect(g, p.cx + x, p.cy + y, 2, 1, "#d6f7e6", 0.4);
+        }
+      }
+    }
+    for (let x = 4; x < p.rx - 3; x += 7) {
+      if (Math.sin(x + t * 3 + i) > 0.5) px(g, p.cx + x, p.cy - 1, "#ffffff", 0.75);
+      if (Math.sin(x + t * 2.3 + i) < -0.6) px(g, p.cx - x, p.cy + 1, "#b7eee0", 0.65);
+    }
+    rect(g, p.cx - p.rx + 3, p.cy + p.ry - 1, p.rx * 2 - 6, 1, "#1f5f6c", 0.3);
+  }
+
+  // impact foam at the canal
+  const pulse = (Math.sin(t * 3) + 1) * 0.5;
+  ellipse(g, 259, 193, 9 + pulse * 2, 2, "#e8fff8", 0.35);
+  for (let k = 0; k < 6; k++) {
+    const dx = Math.round(Math.sin(t * 4 + k * 2.1) * (3 + k));
+    const dy = Math.round(Math.cos(t * 3.5 + k) * 2);
+    px(g, 259 + dx, 192 + dy, "#ffffff", 0.7);
+  }
+  for (let r = 0; r < 3; r++) {
+    const rr = ((t * 14 + r * 7) % 22);
+    ellipse(g, 259, 193, rr * 0.9 + 3, rr * 0.16 + 1, "#d6f7e6", Math.max(0, 0.26 - rr * 0.011));
+  }
+  // tall side cascade splash
+  ellipse(g, 210, 193, 8 + pulse * 2, 2, "#e8fff8", 0.32);
+  for (let k = 0; k < 5; k++) {
+    const dx = Math.round(Math.sin(t * 3.6 + k * 2.3) * (2 + k));
+    px(g, 210 + dx, 191 - ((t * 18 + k * 3) % 5), "#ffffff", 0.55);
+  }
+  for (let r = 0; r < 2; r++) {
+    const rr = ((t * 12 + r * 9) % 18);
+    ellipse(g, 210, 193, rr * 0.8 + 2, rr * 0.15 + 1, "#d6f7e6", Math.max(0, 0.24 - rr * 0.014));
+  }
+  dither(g, 230, 189, 46, 7, "#eafff8", 3, 0, 0.2);
+}
+
+/* ------------------------------ water ------------------------------ */
+
+function drawWater(g, t) {
+  const grad = g.createLinearGradient(0, WATER_Y, 0, H);
+  grad.addColorStop(0, "#4aa39c");
+  grad.addColorStop(0.28, "#2f8b92");
+  grad.addColorStop(0.62, "#21707d");
+  grad.addColorStop(1, "#154e5f");
+  g.fillStyle = grad;
+  g.fillRect(0, WATER_Y, W, H - WATER_Y);
+
+  rect(g, 0, WATER_Y, W, 1, "#a9e8d6", 0.85);
+  rect(g, 0, WATER_Y + 1, W, 1, "#7fd4c6", 0.5);
+
+  // long horizontal wave dashes
+  const rnd = mulberry32(77);
+  for (let i = 0; i < 180; i++) {
+    const x = Math.floor(rnd() * W);
+    const y = WATER_Y + 4 + Math.floor(rnd() * (H - WATER_Y - 6));
+    const depth = (y - WATER_Y) / (H - WATER_Y);
+    const len = 2 + Math.floor(rnd() * (3 + depth * 7));
+    const drift = Math.sin(t * (0.6 + depth) + x * 0.12 + y * 0.3);
+    if (drift > -0.2) {
+      rect(g, x + Math.round(drift * 2), y, len, 1, depth < 0.5 ? "#8fe0cf" : "#5cb6b0", 0.28 + depth * 0.25);
+    }
+  }
+
+  // sun reflection column
+  const sx = 402;
+  for (let y = WATER_Y + 2; y < H; y += 2) {
+    const depth = (y - WATER_Y) / (H - WATER_Y);
+    const spread = 8 + depth * 34;
+    for (let k = 0; k < 3; k++) {
+      const off = Math.sin(t * 1.4 + y * 0.22 + k * 2.4) * (3 + depth * 9);
+      const w = Math.max(1, Math.round((6 - k * 1.5) * (0.5 + depth)));
+      rect(g, sx + off + (k - 1) * 3, y, w, 1, "#ffe6b0", 0.22 - depth * 0.1);
+    }
+  }
+
+  // soft reflections of the banks / towers
+  const reflections = [
+    { x: 40, w: 70, c: "#f7e6c2" },
+    { x: 116, w: 22, c: "#c2ac82" },
+    { x: 230, w: 70, c: "#c2ac82" },
+    { x: 352, w: 60, c: "#f7e6c2" },
+    { x: 430, w: 44, c: "#f7e6c2" }
+  ];
+  for (const r of reflections) {
+    for (let y = WATER_Y + 1; y < WATER_Y + 34; y++) {
+      const k = (y - WATER_Y) / 34;
+      const wob = Math.round(Math.sin(t * 2 + y * 0.9 + r.x) * (1 + k * 2));
+      rect(g, r.x + wob, y, r.w, 1, r.c, 0.10 * (1 - k) + 0.02);
+    }
+  }
+
+  // lily pads
+  const pads = [
+    [42, 236, 5], [58, 246, 4], [30, 252, 3], [72, 258, 4],
+    [360, 242, 4], [378, 232, 3], [448, 252, 5], [466, 244, 3]
+  ];
+  for (let i = 0; i < pads.length; i++) {
+    const p = pads[i];
+    ellipse(g, p[0], p[1], p[2], Math.max(1, p[2] * 0.45), "#4f9b50", 0.85);
+    ellipse(g, p[0] - 1, p[1] - 1, p[2] - 1, Math.max(1, p[2] * 0.35), "#7dc35f", 0.9);
+    if (i % 3 === 0) px(g, p[0], p[1] - 2, P.flowerPink);
+  }
+}
+
+/* --------------------------- water wheel --------------------------- */
+
+function drawWaterWheel(g, t) {
+  const cx = 116;
+  const cy = 210;
+  const r = 24;
+  const ang = t * 0.9;
+
+  // axle bracket from the mill
+  rect(g, 104, 206, 12, 8, P.woodDeep);
+  rect(g, 104, 206, 12, 1, P.wood);
+  ellipse(g, 110, 210, 2, 2, P.woodWarm);
+
+  // shadow in the water
+  ellipse(g, cx, 232, 19, 4, "#12454f", 0.5);
+  ellipse(g, cx, 232, 14, 3, "#0e3a45", 0.5);
+
+  // rim
+  ring(g, cx, cy, r, 3, P.woodDark);
+  ring(g, cx, cy, r - 1, 1, P.woodWarm);
+  ring(g, cx, cy, r - 8, 2, P.wood);
+  ring(g, cx, cy, r - 8, 1, P.woodLight, 0.55);
+
+  // spokes
+  for (let i = 0; i < 12; i++) {
+    const a = ang + (i * Math.PI) / 6;
+    const x1 = cx + Math.cos(a) * (r - 2);
+    const y1 = cy + Math.sin(a) * (r - 2);
+    line(g, cx, cy, x1, y1, i % 2 ? P.woodDark : P.wood, 1, 0.95);
+  }
+
+  // paddles
+  for (let i = 0; i < 12; i++) {
+    const a = ang + (i * Math.PI) / 6;
+    const px1 = cx + Math.cos(a) * (r - 1);
+    const py1 = cy + Math.sin(a) * (r - 1);
+    const nx = Math.cos(a + Math.PI / 2);
+    const ny = Math.sin(a + Math.PI / 2);
+    const lit = Math.cos(a - 1.2) > 0;
+    line(g, px1 - nx * 3, py1 - ny * 3, px1 + nx * 3, py1 + ny * 3, lit ? P.woodWarm : P.woodDeep, 2);
+    if (lit) px(g, px1, py1, "#e0b682", 0.8);
+  }
+
+  // hub
+  ellipse(g, cx, cy, 6, 6, P.woodDeep);
+  ellipse(g, cx, cy, 4, 4, P.woodWarm);
+  ellipse(g, cx, cy, 2, 2, P.goldDeep);
+  px(g, cx - 1, cy - 1, P.goldLight);
+
+  // submerge the lower arc in canal water
+  for (let y = 229; y <= 236; y++) {
+    const k = (y - 229) / 8;
+    rect(g, cx - r + 1, y, r * 2 - 2, 1, "#2a7d86", 0.18 + k * 0.32);
+  }
+
+  // splash where the paddles meet the water
+  ellipse(g, cx + 2, 232, 18, 3, "#d6f7e6", 0.26);
+  for (let i = 0; i < 9; i++) {
+    const sx = cx - 18 + i * 4 + Math.round(Math.sin(t * 4 + i) * 2);
+    const sy = 230 + Math.round(Math.sin(t * 3 + i * 1.7) * 3);
+    px(g, sx, sy, "#eafcff", 0.45 + Math.sin(t * 5 + i) * 0.2);
+  }
+  // white water from the launder
+  for (let i = 0; i < 4; i++) {
+    const ly = 188 + ((t * 26 + i * 5) % 18);
+    px(g, 114 + (i % 2), ly, "#eafcff", 0.5);
+  }
+}
+
+/* ------------------------------- dock ------------------------------ */
+
+function drawDock(g, t) {
+  const deckY = 202;
+  const deckH = 8;
+  const x0 = 214;
+  const x1 = 332;
+
+  rect(g, x0 + 2, deckY + deckH, x1 - x0 - 4, 2, "rgba(21,78,95,0.4)");
+
+  // posts
+  const posts = [218, 246, 274, 302, 328];
+  for (let i = 0; i < posts.length; i++) {
+    const pxPost = posts[i];
+    rect(g, pxPost, deckY + deckH, 3, 20, P.woodDark);
+    rect(g, pxPost, deckY + deckH, 1, 20, P.wood);
+    const bob = Math.sin(t * 1.7 + i) * 0.5;
+    rect(g, pxPost - 1, 224 + bob, 5, 1, "#8fe0cf", 0.3);
+    rect(g, pxPost - 2, 227 - bob, 7, 1, "#8fe0cf", 0.2);
+  }
+
+  // deck
+  rect(g, x0, deckY, x1 - x0, deckH, P.wood);
+  for (let y = deckY; y < deckY + deckH; y += 2) {
+    rect(g, x0, y, x1 - x0, 1, y % 4 === 0 ? P.woodLight : P.woodWarm, 0.7);
+  }
+  for (let x = x0; x < x1; x += 12) {
+    rect(g, x, deckY, 1, deckH, P.woodDark, 0.8);
+  }
+  rect(g, x0, deckY, x1 - x0, 1, "#e8c495");
+  rect(g, x0, deckY + deckH - 1, x1 - x0, 1, P.woodDeep);
+
+  // railing on the left span
+  for (let x = x0 + 4; x < 268; x += 9) {
+    rect(g, x, deckY - 5, 1, 5, P.woodDark);
+    rect(g, x, deckY - 5, 1, 1, P.woodLight);
+  }
+  rect(g, x0 + 3, deckY - 5, 52, 1, P.woodDark);
+  rect(g, x0 + 3, deckY - 3, 52, 1, P.wood, 0.8);
+  drawVine(g, 240, deckY - 4, 8, 133);
+
+  // lookout tower
+  const tx = 288;
+  const tw = 40;
+  const platformY = 178;
+  for (let i = 0; i < 4; i++) {
+    const pxPost = tx + (i === 0 ? 0 : i === 1 ? 11 : i === 2 ? 27 : 38);
+    rect(g, pxPost, platformY, 3, deckY - platformY, P.wood);
+    rect(g, pxPost, platformY, 1, deckY - platformY, P.woodLight);
+  }
+  line(g, tx + 1, platformY + 7, tx + 38, deckY - 3, P.woodDark, 1, 0.65);
+  line(g, tx + 38, platformY + 7, tx + 1, deckY - 3, P.woodDark, 1, 0.45);
+
+  // platform
+  rect(g, tx - 3, platformY, tw + 6, 4, P.woodLight);
+  rect(g, tx - 3, platformY + 3, tw + 6, 1, P.woodDark);
+  rect(g, tx - 4, platformY - 1, tw + 8, 1, P.woodWarm);
+
+  // railing
+  for (let x = tx - 3; x < tx + tw + 3; x += 6) {
+    rect(g, x, platformY - 7, 1, 6, P.woodDark);
+  }
+  rect(g, tx - 3, platformY - 7, tw + 6, 1, P.wood);
+  rect(g, tx - 3, platformY - 5, tw + 6, 1, P.woodDark, 0.7);
+
+  // pagoda roof
+  for (let i = 0; i < 8; i++) {
+    const rowW = 26 + i * 4;
+    const rowX = tx + tw / 2 - Math.round(rowW / 2);
+    rect(g, rowX, platformY - 18 + i, rowW, 1, i % 2 ? P.goldDeep : P.gold);
+  }
+  rect(g, tx + 17, platformY - 19, 12, 1, P.goldLight);
+  rect(g, tx - 10, platformY - 10, tw + 20, 1, P.woodDark);
+  rect(g, tx - 11, platformY - 11, 2, 1, P.goldDeep);
+  rect(g, tx + tw + 9, platformY - 11, 2, 1, P.goldDeep);
+  line(g, tx + tw / 2, platformY - 23, tx + tw / 2, platformY - 19, P.goldDeep, 1);
+  ellipse(g, tx + tw / 2, platformY - 24, 3, 2, P.gold);
+  px(g, tx + tw / 2, platformY - 27, P.goldLight);
+
+  // hanging lantern
+  const lx = tx + tw - 6;
+  const ly = platformY - 2;
+  line(g, lx, platformY - 1, lx, ly + 7, P.rope, 1, 0.9);
+  rect(g, lx - 2, ly + 7, 5, 6, P.goldDeep);
+  rect(g, lx - 1, ly + 8, 3, 4, "#ffe9a8");
+  rect(g, lx - 1, ly + 8, 3, 1, "#fff7d8");
+  px(g, lx, ly + 7, P.goldLight);
+  const flick = 0.7 + Math.sin(t * 5.1) * 0.1 + Math.sin(t * 11.3) * 0.05;
+  ellipse(g, lx, ly + 11, 11, 10, "#ffdf9e", 0.10 * flick);
+  ellipse(g, lx, ly + 11, 7, 6, "#ffdf9e", 0.12 * flick);
+  ellipse(g, lx, ly + 11, 3, 3, "#fff3cc", 0.22 * flick);
+
+  // ladder
+  for (let y = platformY + 4; y < deckY; y += 4) {
+    rect(g, tx + 4, y, 8, 1, P.woodLight);
+  }
+  rect(g, tx + 4, platformY + 4, 1, deckY - platformY - 4, P.woodDark);
+  rect(g, tx + 11, platformY + 4, 1, deckY - platformY - 4, P.woodDark);
+
+  // crates, planter, person, cat
+  rect(g, 222, deckY - 7, 9, 7, P.wood);
+  rect(g, 222, deckY - 7, 9, 1, P.woodWarm);
+  rect(g, 222, deckY - 3, 9, 1, P.woodDark, 0.6);
+  rect(g, 231, deckY - 5, 6, 5, P.woodDark);
+  rect(g, 231, deckY - 5, 6, 1, P.woodLight);
+  rect(g, 248, deckY - 5, 11, 5, P.woodDark);
+  drawBush(g, 253, deckY - 5, 4, 151);
+  px(g, 250, deckY - 9, P.flowerPink);
+  px(g, 256, deckY - 10, P.gold);
+
+  drawPerson(g, 236, deckY - 1, "#e78f6a", "#e8c07a");
+  drawTinyCat(g, 310, deckY);
+}
+
+/* ------------------------------- boats ----------------------------- */
+
+function drawSolarBoat(g, x, y, s, t, phase, drift) {
+  const bob = Math.sin(t * 1.4 + phase) * 0.8;
+  const yy = y + bob;
+  x += Math.round(Math.sin(t * 0.28 + phase) * drift);
+
+  // hull: rounded boat shape
+  ellipseRows(g, x, yy + 2 * s, 18 * s, 7 * s, function (ry2, left, ww, dy) {
+    if (dy < -0.30) return;
+    let c = P.wood;
+    if (dy > 0.45) c = P.woodDeep;
+    else if (dy < 0.05) c = P.woodWarm;
+    rect(g, left, ry2, ww, 1, c);
+  });
+  // gunwale rim
+  ellipse(g, x, yy - 0.5 * s, 16 * s, 3 * s, P.woodLight);
+  ellipse(g, x, yy + 0.5 * s, 14 * s, 2 * s, P.woodDark);
+  // side planks
+  for (let i = -12; i <= 12; i += 6) {
+    rect(g, x + i * s, yy + 1 * s, 4 * s, 1, P.woodDeep, 0.35);
+  }
+  // horizontal planks and bow accents
+  for (let i = -12; i <= 12; i += 6) {
+    rect(g, x + i * s, yy + 2 * s, 5 * s, 1, P.woodDark, 0.22);
+  }
+  px(g, x - 18 * s, yy + 0.5 * s, P.goldDeep);
+  px(g, x + 18 * s, yy + 0.5 * s, P.goldDeep);
+  // pilot standing amidships
+  rect(g, x - 1 * s, yy - 7 * s, 3 * s, 5 * s, "#e78f6a");
+  rect(g, x - 1 * s, yy - 10 * s, 3 * s, 3 * s, "#e9b48c");
+  rect(g, x - 2 * s, yy - 11 * s, 5 * s, 1 * s, "#e8c07a");
+
+  // canopy on four short posts
+  const cw = 13 * s;
+  const ch = yy - 11 * s;
+  for (let i = -1; i <= 1; i += 2) {
+    line(g, x + i * (cw - 2), yy - 1 * s, x + i * (cw - 2), ch + 1, P.woodDark, 1);
+  }
+  ellipse(g, x, ch, cw, 3 * s, P.goldLight);
+  ellipse(g, x, ch + 1, cw - 1, 2.5 * s, "#e8c88e");
+  rect(g, x - cw + 3, ch + 1, cw * 2 - 6, Math.max(1, Math.round(2 * s)), "#2f6b78");
+  for (let i = -cw + 6; i < cw - 5; i += 6) {
+    rect(g, x + i, ch + 1, 1, Math.max(1, Math.round(2 * s)), "#5fa3ad");
+    px(g, x + i + 2, ch + 2, "#d9fbff", 0.8);
+  }
+  px(g, x - cw + 2, ch - 1, P.goldLight);
+
+  // little bow lantern
+  line(g, x + cw + 1, yy - 2, x + cw + 1, yy - 6, P.rope, 1, 0.8);
+  px(g, x + cw + 1, yy - 5, "#ffe9a8");
+  ellipse(g, x + cw + 1, yy - 5, 3 * s, 3 * s, "#ffdf9e", 0.18);
+
+  // wake and glints
+  for (let i = 0; i < 4; i++) {
+    rect(g, x - 20 * s - i * 4, yy + 4 * s + i * 0.8, 3 + i, 1, "#d6f7e6", 0.22 - i * 0.04);
+    rect(g, x + 18 * s + i * 3, yy + 4 * s + i * 0.8, 2 + i, 1, "#d6f7e6", 0.18 - i * 0.03);
+  }
+  if (Math.sin(t * 2 + phase) > 0.65) px(g, x + 6 * s, yy + 5 * s, "#ffffff", 0.5);
+}
+
+function drawRowboat(g, x, y, t, phase) {
+  const bob = Math.sin(t * 1.2 + phase) * 0.7;
+  const yy = y + bob;
+  for (let i = 0; i < 4; i++) {
+    const w = (9 - i) * 1.2;
+    rect(g, x - w, yy - i, w * 2, 1, i === 0 ? P.woodDeep : P.wood);
+  }
+  line(g, x - 7, yy - 3, x + 7, yy - 3, P.woodLight, 1);
+  line(g, x - 6, yy - 1, x + 6, yy - 1, P.woodDark, 1, 0.6);
+  // tiny person with an oar
+  rect(g, x - 1, yy - 8, 3, 5, "#e78f6a");
+  rect(g, x - 1, yy - 11, 3, 3, "#e9b48c");
+  rect(g, x - 2, yy - 12, 5, 1, "#e8c07a");
+  line(g, x + 1, yy - 8, x + 9, yy - 2, P.wood, 1);
+  px(g, x + 9, yy - 1, "#d6f7e6", 0.6);
+}
+
+function drawBoats(g, t) {
+  drawRowboat(g, 62, 236, t, 0.7);
+  drawSolarBoat(g, 150, 232, 0.6, t, 1.9, 5);
+  drawSolarBoat(g, 344, 222, 0.9, t, 0.4, 14);
+  drawSolarBoat(g, 428, 244, 1.15, t, 2.6, 9);
+}
+
+/* ----------------------------- airships ---------------------------- */
+
+function drawAirship(g, x, y, s, t, phase) {
+  const bob = Math.sin(t * 0.8 + phase) * 1.5;
+  y += bob;
+  const rx = 27 * s;
+  const ry = 9 * s;
+
+  rect(g, x - 19 * s, y + 14 * s, 38 * s, 1, "rgba(20,60,70,0.16)");
+
+  // fins
+  line(g, x - rx + 2, y, x - rx - 5 * s, y - 8 * s, P.goldDeep, Math.max(1, Math.round(2 * s)));
+  line(g, x - rx + 2, y + 1, x - rx - 5 * s, y + 8 * s, P.goldDeep, Math.max(1, Math.round(2 * s)));
+  line(g, x - rx + 3, y, x - rx - 3 * s, y - 6 * s, "#4a9aa6", Math.max(1, Math.round(1 * s)));
+
+  // envelope
+  ellipseRows(g, x, y, rx, ry, function (yy, left, ww, dy) {
+    let color = "#f4e2b4";
+    if (dy < -0.35) color = "#fbf2d3";
+    else if (dy > 0.55) color = "#e0c07e";
+    g.fillStyle = color;
+    g.fillRect(left, yy, ww, 1);
+  });
+
+  // lower teal band
+  for (let yy = y; yy <= y + ry; yy++) {
+    const dy = (yy - y) / ry;
+    const s2 = 1 - dy * dy;
+    if (s2 < 0) continue;
+    const ww = Math.round(rx * Math.sqrt(s2));
+    const cut = Math.round(ry * 0.35 + 1);
+    if (yy - y > cut) rect(g, x - ww + 3, yy, ww * 2 - 6, 1, "#5fb1b4", 0.5);
+  }
+
+  // ribs
+  for (let i = -2; i <= 2; i++) {
+    const fx = x + i * rx * 0.36;
+    const h = ry * Math.sqrt(1 - (i / 2.8) * (i / 2.8));
+    line(g, fx, y - h + 2, fx, y + h - 2, "rgba(160,120,60,0.32)");
+  }
+
+  // solar cells on top
+  for (let i = 0; i < 3; i++) {
+    const px0 = x - 10 * s + i * 8 * s;
+    const py0 = y - ry + 0.5 * s;
+    rect(g, px0, py0, 6 * s, 2.5 * s, "#3f8391");
+    rect(g, px0, py0, 6 * s, 1, "#6fb6bd");
+    px(g, px0 + 1, py0 + 1, "#c9f6f4", 0.8);
+  }
+
+  // gondola
+  const gy = y + ry + 2;
+  line(g, x - 8 * s, y + ry - 1, x - 8 * s, gy, P.rope, 1, 0.8);
+  line(g, x + 8 * s, y + ry - 1, x + 8 * s, gy, P.rope, 1, 0.8);
+  rect(g, x - 11 * s, gy, 22 * s, 4 * s, P.woodDark);
+  rect(g, x - 10 * s, gy + 1, 20 * s, 2 * s, P.wood);
+  rect(g, x - 10 * s, gy + 1, 20 * s, 1, P.woodLight);
+  for (let i = -2; i <= 2; i++) {
+    px(g, x + i * 4 * s, gy + 2 * s, "#ffe1a3", 0.9);
+  }
+  px(g, x + 10 * s, gy - 1, "#eafcff", 0.7);
+
+  // propeller
+  const pa = t * 9 + phase;
+  for (let i = 0; i < 3; i++) {
+    const a = pa + i * 2.09;
+    line(g, x - rx - 2, y, x - rx - 2 + Math.cos(a) * 4, y + Math.sin(a) * 4, P.goldDeep, 1, 0.7);
+  }
+}
+
+function drawAirships(g, t) {
+  drawAirship(g, 150 + Math.sin(t * 0.08) * 8, 70, 1.1, t, 0.3);
+  drawAirship(g, 306 + Math.sin(t * 0.06 + 1) * 10, 52, 0.75, t, 1.7);
+  drawAirship(g, 62 + Math.sin(t * 0.05 + 2) * 6, 42, 0.5, t, 2.9);
+}
+
+/* ----------------------------- turbines ---------------------------- */
+
+function drawTurbine(g, x, base, scale, t, phase, spin) {
+  const mastH = 32 * scale;
+  const topY = base - mastH;
+
+  // slim tapered mast
+  line(g, x, base, x, topY, "#e9dcbd", Math.max(1, Math.round(scale * 1.6)));
+  line(g, x + 1, base, x + 1, topY, "#a48e66", Math.max(1, Math.round(scale * 0.8)), 0.85);
+  for (let i = 1; i < 4; i++) {
+    const yy = base - (mastH / 4) * i;
+    line(g, x - 2 * scale, yy, x + 2 * scale, yy, "#d9c9a6", 1, 0.55);
+  }
+  // nacelle and hub
+  rect(g, x - 2, topY - 1, 5, 3, "#f4ead2");
+  rect(g, x - 2, topY - 1, 5, 1, "#fff6e2");
+  px(g, x + 3, topY, P.goldDeep);
+  px(g, x, topY - 1, P.goldLight);
+
+  // three tapered blades with a dark edge for contrast
+  const a0 = t * spin + phase;
+  for (let i = 0; i < 3; i++) {
+    const a = a0 + (i * Math.PI * 2) / 3;
+    const ex = x + Math.cos(a) * 11 * scale;
+    const ey = topY + Math.sin(a) * 11 * scale;
+    line(g, x, topY, ex, ey, "#f7edd4", Math.max(1, Math.round(scale * 1.5)));
+    line(g, x + 1, topY + 1, ex, ey, "#b9a47c", 1, 0.7);
+    const mx = x + Math.cos(a) * 6 * scale;
+    const my = topY + Math.sin(a) * 6 * scale;
+    px(g, mx, my, "#d9963a", 0.55);
+    px(g, ex, ey, "#fff8e6", 0.95);
+  }
+}
+
+function drawTurbines(g, t) {
+  drawTurbine(g, 86, 146, 0.85, t, 0.2, 2.4);
+  drawTurbine(g, 392, 150, 0.9, t, 1.1, 2.0);
+  drawTurbine(g, 444, 136, 1.0, t, 2.2, 2.7);
+  drawTurbine(g, 302, 140, 0.6, t, 3.1, 1.8);
+}
+
+/* ------------------------------ clouds ----------------------------- */
+
+const clouds = [
+  { x: 52, y: 24, s: 1.0, spd: 1.5 },
+  { x: 248, y: 14, s: 0.7, spd: 1.0 },
+  { x: 146, y: 46, s: 0.55, spd: 0.65 },
+  { x: 344, y: 30, s: 0.5, spd: 0.5 }
+];
+
+function drawCloud(g, x, y, s) {
+  const blocks = [
+    [9, 3, 20, 5],
+    [5, 6, 29, 4],
+    [14, 1, 12, 3],
+    [2, 8, 33, 2],
+    [22, 0, 7, 2]
+  ];
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    rect(g, x + b[0] * s, y + (b[1] + 1) * s, b[2] * s, b[3] * s, P.cloudShade, 0.55);
+  }
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    rect(g, x + b[0] * s, y + b[1] * s, b[2] * s, b[3] * s, P.cloud);
+  }
+  rect(g, x + 14 * s, y + 1 * s, 12 * s, 2 * s, P.cloudLight);
+  rect(g, x + 8 * s, y + 3 * s, 8 * s, 1 * s, P.cloudLight);
+  dither(g, x + 2 * s, y + 8 * s, 33 * s, 2 * s, P.cloudShade, 2, 0, 0.3);
+}
+
+function drawClouds(g, t) {
+  for (let i = 0; i < clouds.length; i++) {
+    const c = clouds[i];
+    const x = ((c.x + t * c.spd) % (W + 80)) - 40;
+    drawCloud(g, x, c.y + Math.sin(t * 0.15 + i) * 1.5, c.s);
+  }
+}
+
+/* ------------------------------ birds ------------------------------ */
+
+function drawBirds(g, t) {
+  for (let i = 0; i < 6; i++) {
+    const x = ((t * (8 + i * 2) + i * 57) % (W + 40)) - 20;
+    const y = 96 + Math.sin(t * 0.6 + i * 1.7) * 7 + i * 4;
+    const flap = Math.sin(t * 8 + i) > 0 ? 1 : 0;
+    px(g, x, y, P.bird, 0.8);
+    px(g, x - 1, y - flap, P.bird, 0.7);
+    px(g, x + 1, y - flap, P.bird, 0.7);
+  }
+}
+
+/* --------------------------- foreground ---------------------------- */
+
+function drawReeds(g, t, x, base, h, seed) {
+  const rnd = mulberry32(seed);
+  for (let i = 0; i < 7; i++) {
+    const rx = x + Math.round(rnd() * 16 - 8);
+    const rh = h * (0.5 + rnd() * 0.6);
+    const sway = Math.round(Math.sin(t * 1.6 + i + seed) * 2);
+    line(g, rx, base, rx + sway, base - rh, i % 3 ? "#3a7c4c" : "#2b5f41", 1, 0.9);
+    if (i % 2 === 0) {
+      px(g, rx + sway, base - rh - 1, "#5d9450");
+      px(g, rx + sway + 1, base - rh - 2, "#76ab5b", 0.9);
+    }
+  }
+}
+
+function drawForeground(g, t) {
+  drawReeds(g, t, 10, 268, 38, 11);
+  drawReeds(g, t, 468, 268, 42, 12);
+  drawReeds(g, t, 90, 260, 18, 13);
+
+  // fireflies / drifting pollen
+  for (let i = 0; i < 14; i++) {
+    const bx2 = (i * 97 + Math.sin(t * 0.4 + i) * 26) % W;
+    const by2 = 110 + ((i * 53) % 90) + Math.sin(t * 0.9 + i * 2) * 5;
+    const a = 0.25 + 0.25 * Math.sin(t * 2.2 + i * 1.4);
+    px(g, bx2, by2, i % 3 === 0 ? "#ffe9b0" : "#d6f7e6", a);
+    if (i % 4 === 0) ellipse(g, bx2, by2, 2, 2, "#fff3cc", a * 0.35);
+  }
+
+  // chimney smoke from the mill
+  for (let i = 0; i < 8; i++) {
+    const p = (t * 0.22 + i / 8) % 1;
+    const sx = 90 + Math.sin(p * 4 + i) * 4 + p * 9;
+    const sy = 136 - p * 32;
+    const r = 2 + p * 5;
+    ellipse(g, sx, sy, r, r * 0.7, "#f6eedd", 0.34 * (1 - p));
+    ellipse(g, sx - 1, sy - 1, r * 0.6, r * 0.4, "#fffaf0", 0.2 * (1 - p));
+  }
+
+  // mist drifting over the canal
+  for (let i = 0; i < 5; i++) {
+    const mx = ((t * (4 + i) + i * 96) % (W + 120)) - 60;
+    const my = 196 + i * 7;
+    ellipse(g, mx, my, 26, 2.5, "#eafff8", 0.05);
+  }
+}
+
+/* ---------------------------- assemble ----------------------------- */
+
+function buildBackground() {
+  drawSky(bx);
+  drawFarLandscape(bx);
+  drawLeftSide(bx);
+  drawRightSide(bx);
+  drawCliff(bx);
+  drawArchBridge(bx);
+  drawPerson(bx, 166, 147, "#e78f6a", "#e8c07a");
+  drawMill(bx);
+
+  // quay bollards
+  for (let i = 0; i < 4; i++) {
+    const x = 316 + i * 34;
+    rect(bx, x, 186, 3, 4, P.woodDark);
+    ellipse(bx, x + 1, 185, 2, 1, P.woodWarm);
+  }
+}
+
+buildBackground();
+
+/* ---------------------------- render loop -------------------------- */
+
+let start = 0;
+function frame(now) {
+  if (!start) start = now;
+  const t = (now - start) / 1000;
+
+  ctx.drawImage(bgCanvas, 0, 0);
+
+  drawClouds(ctx, t);
+  drawAirships(ctx, t);
+  drawBirds(ctx, t);
+  drawTurbines(ctx, t);
+
+  drawWater(ctx, t);
+  for (const f of falls) drawFall(ctx, f.x, f.y0, f.y1, f.w, f.seed, t);
+  drawPools(ctx, t);
+
+  drawWaterWheel(ctx, t);
+  drawDock(ctx, t);
+  drawBoats(ctx, t);
+  drawForeground(ctx, t);
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ------------------------- crisp integer scale --------------------- */
+
+function resize() {
+  const pad = Math.min(window.innerWidth, window.innerHeight) > 700 ? 24 : 0;
+  const availW = Math.max(120, window.innerWidth - pad * 2);
+  const availH = Math.max(80, window.innerHeight - pad * 2);
+  let scale = Math.min(availW / W, availH / H);
+  if (scale >= 1) scale = Math.floor(scale * 2) / 2;
+  if (scale < 0.5) scale = Math.max(0.25, scale);
+  canvas.style.width = Math.round(W * scale) + "px";
+  canvas.style.height = Math.round(H * scale) + "px";
+}
+window.addEventListener("resize", resize);
+resize();
+</script>
+</body>
+</html>
